@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบพิมพ์ใบเสร็จรับเงิน / ใบกำกับภาษีอัจฉริยะ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Sarabun', sans-serif; }
+        
+        @media print {
+            @page {
+                size: A4;
+                margin: 4mm;
+            }
+            .no-print { display: none !important; }
+            body { background: white; padding: 0; margin: 0; }
+            .print-area { box-shadow: none !important; margin: 0 !important; width: 100% !important; border: none !important; padding: 1mm !important; }
+            
+            input, select, textarea { border: none !important; background: transparent !important; resize: none; outline: none; padding: 0 !important; appearance: none; }
+            input[type="date"]::-webkit-calendar-picker-indicator { display: none; }
+            
+            input[type="radio"] {
+                appearance: radio !important;
+                -webkit-appearance: radio !important;
+                display: inline-block !important;
+                width: 12px !important;
+                height: 12px !important;
+                margin-right: 4px !important;
+                vertical-align: middle !important;
+            }
+            
+            .print-tax-label { display: block !important; }
+            .input-tax-field { display: none !important; }
+        }
+        .print-tax-label { display: none; }
+    </style>
+</head>
+<body class="bg-slate-100 py-4 px-2">
+
+    <!-- Password Modal -->
+    <div id="authModal" class="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl text-center">
+            <div class="text-3xl mb-2">🔒</div>
+            <h2 class="text-lg font-bold text-slate-800 mb-1">กรุณากรอกรหัสผ่านเพื่อเข้าใช้งาน</h2>
+            <p class="text-xs text-slate-500 mb-4">ระบบป้องกันความปลอดภัย</p>
+            <input type="password" id="accessPassword" placeholder="••••••" class="w-full border rounded-xl px-3 py-2 text-center text-lg tracking-widest mb-3 outline-none focus:ring-2 focus:ring-blue-500">
+            <button onclick="checkPassword()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-xl transition shadow">เข้าสู่ระบบ</button>
+            <p id="errorMsg" class="text-xs text-rose-500 mt-2 hidden">รหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง</p>
+        </div>
+    </div>
+
+    <div class="max-w-4xl mx-auto bg-white p-4 rounded-2xl shadow-xl print-area border border-slate-200">
+        
+        <!-- App Header & Document Type -->
+        <div class="flex flex-col md:flex-row justify-between items-start border-b pb-2 mb-2 gap-2">
+            <div>
+                <h1 class="text-xl font-extrabold text-slate-800 tracking-tight">ใบเสร็จรับเงิน / ใบกำกับภาษี</h1>
+                <p class="text-[11px] font-medium text-slate-500">CASH SALE / TAX INVOICE (OR RECEIPT)</p>
+            </div>
+            <div class="w-full md:w-auto space-y-1 bg-slate-50 p-2 rounded-xl border border-slate-100">
+                <div class="flex items-center justify-between gap-4">
+                    <label class="text-[11px] font-bold text-slate-600 uppercase">ประเภทเอกสาร:</label>
+                    <select id="docType" class="border rounded px-1.5 py-0.5 text-[11px] bg-white font-semibold text-slate-700">
+                        <option value="ต้นฉบับ (ORIGINAL)">ต้นฉบับ (ORIGINAL)</option>
+                        <option value="สำเนา (COPY)">สำเนา (COPY)</option>
+                    </select>
+                </div>
+                <div class="flex items-center justify-between gap-4">
+                    <label class="text-[11px] font-bold text-slate-600 uppercase">เล่มที่ (Book No):</label>
+                    <select id="bookNo" class="border rounded px-1.5 py-0.5 w-28 text-[11px] bg-white text-center font-medium">
+                        <!-- Gen 1-50 via JS -->
+                    </select>
+                </div>
+                <div class="flex items-center justify-between gap-4">
+                    <label class="text-[11px] font-bold text-slate-600 uppercase">เลขที่ (Receipt No):</label>
+                    <div class="flex gap-1">
+                        <input type="text" id="receiptNo" class="border rounded px-1.5 py-0.5 w-20 text-[11px] bg-white text-center font-medium" placeholder="0001">
+                        <button onclick="autoRunReceiptNo()" class="no-print bg-slate-200 hover:bg-slate-300 px-1.5 py-0.5 rounded text-[10px]" title="รันเลขถัดไป">➕</button>
+                    </div>
+                </div>
+                <div class="flex items-center justify-between gap-4">
+                    <label class="text-[11px] font-bold text-slate-600 uppercase">วันที่ (Date):</label>
+                    <input type="date" id="receiptDate" class="border rounded px-1.5 py-0.5 text-[11px] bg-white font-medium">
+                </div>
+            </div>
+        </div>
+
+        <!-- Seller / Buyer Boxes -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5 mb-2.5">
+            <!-- Seller Box -->
+            <div class="border p-2 rounded-xl bg-slate-50 border-slate-200">
+                <div class="flex justify-between items-center mb-1 border-b pb-0.5">
+                    <h3 class="font-bold text-slate-700 text-[11px] flex items-center gap-1">
+                        🏢 ข้อมูลผู้ขาย / ผู้ออกใบเสร็จ (Seller)
+                    </h3>
+                    <div class="no-print flex gap-1">
+                        <select id="savedSellersSelect" onchange="loadSeller(this.value)" class="text-[10px] border rounded bg-white px-1 py-0.5 max-w-[120px]">
+                            <option value="">-- เลือกผู้ขาย --</option>
+                        </select>
+                        <button onclick="saveCurrentSeller()" class="bg-blue-500 hover:bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded">บันทึก</button>
+                    </div>
+                </div>
+                <input type="text" id="sellerName" placeholder="ชื่อร้านค้า / บริษัท / ชื่อคุณ" class="w-full border rounded px-1.5 py-0.5 mb-1 text-[11px] bg-white font-semibold text-slate-800 shadow-sm">
+                <textarea id="sellerAddress" placeholder="ที่อยู่ผู้ขาย" rows="2" class="w-full border rounded px-1.5 py-0.5 mb-1 text-[11px] bg-white text-slate-700 shadow-sm"></textarea>
+                
+                <div class="input-tax-field">
+                    <input type="text" id="sellerTax" placeholder="เลขประจำตัวผู้เสียภาษี (13 หลัก)" class="w-full border rounded px-1.5 py-0.5 text-[11px] bg-white text-slate-700 shadow-sm" oninput="document.getElementById('sellerTaxText').innerText = this.value || '-'">
+                </div>
+                <div id="sellerTaxPrint" class="print-tax-label text-[11px] font-medium text-slate-700 mt-0.5">
+                    เลขประจำตัวผู้เสียภาษี: <span id="sellerTaxText">-</span>
+                </div>
+            </div>
+            
+            <!-- Buyer Box -->
+            <div class="border p-2 rounded-xl bg-slate-50 border-slate-200">
+                <div class="flex justify-between items-center mb-1 border-b pb-0.5">
+                    <h3 class="font-bold text-slate-700 text-[11px] flex items-center gap-1">
+                        👤 ข้อมูลลูกค้า / ผู้ซื้อ (Customer)
+                    </h3>
+                    <div class="no-print flex gap-1">
+                        <select id="savedBuyersSelect" onchange="loadBuyer(this.value)" class="text-[10px] border rounded bg-white px-1 py-0.5 max-w-[120px]">
+                            <option value="">-- เลือกผู้ซื้อ --</option>
+                        </select>
+                        <button onclick="saveCurrentBuyer()" class="bg-blue-500 hover:bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded">บันทึก</button>
+                    </div>
+                </div>
+                <input type="text" id="buyerName" placeholder="ชื่อลูกค้า / บริษัท" class="w-full border rounded px-1.5 py-0.5 mb-1 text-[11px] bg-white font-semibold text-slate-800 shadow-sm">
+                <textarea id="buyerAddress" placeholder="ที่อยู่ลูกค้า" rows="2" class="w-full border rounded px-1.5 py-0.5 mb-1 text-[11px] bg-white text-slate-700 shadow-sm"></textarea>
+                
+                <div class="input-tax-field">
+                    <input type="text" id="buyerTax" placeholder="เลขประจำตัวผู้เสียภาษีลูกค้า / สาขา" class="w-full border rounded px-1.5 py-0.5 text-[11px] bg-white text-slate-700 shadow-sm" oninput="document.getElementById('buyerTaxText').innerText = this.value || '-'">
+                </div>
+                <div id="buyerTaxPrint" class="print-tax-label text-[11px] font-medium text-slate-700 mt-0.5">
+                    เลขประจำตัวผู้เสียภาษี: <span id="buyerTaxText">-</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Items Table -->
+        <div class="mb-2.5">
+            <div class="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
+                <table class="w-full border-collapse text-[11px]">
+                    <thead>
+                        <tr class="bg-slate-200 text-slate-700 uppercase tracking-wider">
+                            <th class="p-1.5 w-10 text-center">ลำดับ</th>
+                            <th class="p-1.5 text-left">รายการสินค้า / บริการ</th>
+                            <th class="p-1.5 w-24 text-right">ราคาต่อหน่วย</th>
+                            <th class="p-1.5 w-16 text-center">จำนวน</th>
+                            <th class="p-1.5 w-24 text-right">จำนวนเงิน (บาท)</th>
+                            <th class="p-1.5 w-10 text-center no-print">ลบ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="itemRows" class="divide-y divide-slate-200 bg-white">
+                        <!-- Rows injected via JS -->
+                    </tbody>
+                </table>
+            </div>
+            <button onclick="addItemRow()" class="mt-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg text-[11px] font-semibold shadow transition no-print flex items-center gap-1">
+                <span>+</span> เพิ่มรายการสินค้า
+            </button>
+        </div>
+
+        <!-- Calculation & Totals (Right Side) -->
+        <div class="flex justify-end mb-2.5">
+            <div class="w-full md:w-1/2 space-y-1 text-[11px] bg-slate-50 p-2.5 rounded-xl border border-slate-200 shadow-sm">
+                <div class="flex justify-between items-center">
+                    <span class="text-slate-600 font-medium">รวมราคาค่าสินค้า (Subtotal):</span>
+                    <span id="subTotal" class="font-bold text-slate-800">0.00</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-slate-600 font-medium">ค่าขนส่ง (Shipping):</span>
+                    <input type="number" id="shippingCost" value="0" min="0" step="any" oninput="calculateTotal()" class="border rounded px-1.5 py-0.5 w-24 text-right text-[11px] bg-white font-medium shadow-sm">
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-slate-600 font-medium">ส่วนลด (Discount):</span>
+                    <input type="number" id="discount" value="0" min="0" step="any" oninput="calculateTotal()" class="border rounded px-1.5 py-0.5 w-24 text-right text-[11px] bg-white font-medium shadow-sm">
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-slate-600 font-medium">ภาษีมูลค่าเพิ่ม (VAT %):</span>
+                    <input type="number" id="vatRate" value="7" min="0" step="any" oninput="calculateTotal()" class="border rounded px-1.5 py-0.5 w-24 text-right text-[11px] bg-white font-medium shadow-sm">
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-slate-600 font-medium">ภาษีมูลค่าเพิ่ม (VAT Amount):</span>
+                    <span id="vatAmount" class="font-bold text-slate-800">0.00</span>
+                </div>
+                <div class="flex justify-between items-center border-t border-slate-300 pt-1 text-xs font-bold text-slate-900">
+                    <span>ยอดรวมสุทธิทั้งสิ้น (Grand Total):</span>
+                    <span id="grandTotal" class="text-blue-600 text-xs">0.00</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Payment Method -->
+        <div class="border-t pt-2 mb-2.5">
+            <label class="block text-[11px] font-bold text-slate-700 mb-1">ช่องทางการชำระเงิน (Payment Method):</label>
+            <div class="flex items-center gap-6 text-[11px]">
+                <label class="flex items-center gap-1.5 cursor-pointer">
+                    <input type="radio" name="payMethod" value="เงินสด" checked class="text-blue-600"> เงินสด
+                </label>
+                <label class="flex items-center gap-1.5 cursor-pointer">
+                    <input type="radio" name="payMethod" value="โอนเงิน" class="text-blue-600"> โอนเงิน
+                </label>
+                <label class="flex items-center gap-1.5 cursor-pointer">
+                    <input type="radio" name="payMethod" value="อื่นๆ" class="text-blue-600"> อื่นๆ
+                </label>
+            </div>
+        </div>
+
+        <!-- Thai Baht Text -->
+        <div class="mb-2.5">
+            <p class="text-[11px] font-bold text-slate-700 mb-0.5">จำนวนเงินรวมทั้งสิ้น (ตัวอักษร Thai Text):</p>
+            <div id="thaiText" class="p-1.5 bg-blue-50 border border-blue-200 rounded-xl text-blue-900 font-bold text-[11px] text-center shadow-inner">
+                (ศูนย์บาทถ้วน)
+            </div>
+        </div>
+
+        <!-- Signature Section -->
+        <div class="grid grid-cols-2 gap-8 pt-2 border-t border-slate-200 mb-2 text-center text-[11px]">
+            <div>
+                <div class="border-b border-dashed border-slate-400 pb-6 mb-1"></div>
+                <p class="text-slate-700 font-semibold">(ผู้รับเงิน / Authorized Signature)</p>
+                <p class="text-[10px] text-slate-400">วันที่: ____/____/________</p>
+            </div>
+            <div>
+                <div class="border-b border-dashed border-slate-400 pb-6 mb-1"></div>
+                <p class="text-slate-700 font-semibold">(ผู้จ่ายเงิน / Payer Signature)</p>
+                <p class="text-[10px] text-slate-400">วันที่: ____/____/________</p>
+            </div>
+        </div>
+
+        <!-- Print Button -->
+        <div class="text-center no-print pt-1">
+            <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-xl font-bold shadow-lg transition transform hover:-translate-y-0.5 flex items-center justify-center gap-2 mx-auto text-xs">
+                🖨️ สั่งพิมพ์ใบเสร็จรับเงิน / บันทึกเป็น PDF
+            </button>
+        </div>
+
+    </div>
+
+    <script>
+        // Password Protection Script
+        function checkPassword() {
+            let pwd = document.getElementById('accessPassword').value;
+            if (pwd === "000000") {
+                document.getElementById('authModal').style.display = 'none';
+                sessionStorage.setItem('isAuth', 'true');
+            } else {
+                let err = document.getElementById('errorMsg');
+                err.classList.remove('hidden');
+            }
+        }
+
+        // Allow Enter key for password
+        document.getElementById('accessPassword').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                checkPassword();
+            }
+        });
+
+        // Check auth & Init Book No 1-50 and Receipt No
+        window.addEventListener('DOMContentLoaded', () => {
+            if (sessionStorage.getItem('isAuth') === 'true') {
+                document.getElementById('authModal').style.display = 'none';
+            }
+
+            let bookSelect = document.getElementById('bookNo');
+            for (let i = 1; i <= 50; i++) {
+                let opt = document.createElement('option');
+                opt.value = i;
+                opt.text = "เล่มที่ " + i;
+                bookSelect.appendChild(opt);
+            }
+
+            if(!localStorage.getItem('lastReceiptNo')) {
+                localStorage.setItem('lastReceiptNo', '1');
+            }
+            setReceiptNumber(parseInt(localStorage.getItem('lastReceiptNo')));
+
+            loadSavedDropdowns();
+            
+            if(document.querySelectorAll('#itemRows tr').length === 0) {
+                for(let i=0; i<3; i++) {
+                    addItemRow();
+                }
+            }
+        });
+
+        function setReceiptNumber(num) {
+            let padded = String(num).padStart(4, '0');
+            document.getElementById('receiptNo').value = padded;
+        }
+
+        function autoRunReceiptNo() {
+            let current = parseInt(document.getElementById('receiptNo').value) || 0;
+            let next = current + 1;
+            setReceiptNumber(next);
+            localStorage.setItem('lastReceiptNo', next);
+        }
+
+        document.getElementById('receiptDate').valueAsDate = new Date();
+
+        // Save & Load Sellers / Buyers
+        function saveCurrentSeller() {
+            let name = document.getElementById('sellerName').value.trim();
+            if(!name) { alert('กรุณากรอกชื่อผู้ขายก่อนบันทึก'); return; }
+            let data = {
+                name: name,
+                address: document.getElementById('sellerAddress').value,
+                tax: document.getElementById('sellerTax').value
+            };
+            let sellers = JSON.parse(localStorage.getItem('savedSellers') || '[]');
+            let existingIdx = sellers.findIndex(s => s.name === name);
+            if(existingIdx >= 0) { sellers[existingIdx] = data; } else { sellers.push(data); }
+            localStorage.setItem('savedSellers', JSON.stringify(sellers));
+            loadSavedDropdowns();
+            alert('บันทึกข้อมูลผู้ขายเรียบร้อยแล้ว');
+        }
+
+        function saveCurrentBuyer() {
+            let name = document.getElementById('buyerName').value.trim();
+            if(!name) { alert('กรุณากรอกชื่อลูกค้าก่อนบันทึก'); return; }
+            let data = {
+                name: name,
+                address: document.getElementById('buyerAddress').value,
+                tax: document.getElementById('buyerTax').value
+            };
+            let buyers = JSON.parse(localStorage.getItem('savedBuyers') || '[]');
+            let existingIdx = buyers.findIndex(b => b.name === name);
+            if(existingIdx >= 0) { buyers[existingIdx] = data; } else { buyers.push(data); }
+            localStorage.setItem('savedBuyers', JSON.stringify(buyers));
+            loadSavedDropdowns();
+            alert('บันทึกข้อมูลลูกค้าเรียบร้อยแล้ว');
+        }
+
+        function loadSavedDropdowns() {
+            let sellers = JSON.parse(localStorage.getItem('savedSellers') || '[]');
+            let sSelect = document.getElementById('savedSellersSelect');
+            sSelect.innerHTML = '<option value="">-- เลือกผู้ขาย --</option>';
+            sellers.forEach((s, idx) => {
+                let opt = document.createElement('option');
+                opt.value = idx;
+                opt.text = s.name;
+                sSelect.appendChild(opt);
+            });
+
+            let buyers = JSON.parse(localStorage.getItem('savedBuyers') || '[]');
+            let bSelect = document.getElementById('savedBuyersSelect');
+            bSelect.innerHTML = '<option value="">-- เลือกผู้ซื้อ --</option>';
+            buyers.forEach((b, idx) => {
+                let opt = document.createElement('option');
+                opt.value = idx;
+                opt.text = b.name;
+                bSelect.appendChild(opt);
+            });
+        }
+
+        function loadSeller(idx) {
+            if(idx === "") return;
+            let sellers = JSON.parse(localStorage.getItem('savedSellers') || '[]');
+            let s = sellers[idx];
+            if(s) {
+                document.getElementById('sellerName').value = s.name;
+                document.getElementById('sellerAddress').value = s.address;
+                document.getElementById('sellerTax').value = s.tax;
+                document.getElementById('sellerTaxText').innerText = s.tax || '-';
+            }
+        }
+
+        function loadBuyer(idx) {
+            if(idx === "") return;
+            let buyers = JSON.parse(localStorage.getItem('savedBuyers') || '[]');
+            let b = buyers[idx];
+            if(b) {
+                document.getElementById('buyerName').value = b.name;
+                document.getElementById('buyerAddress').value = b.address;
+                document.getElementById('buyerTax').value = b.tax;
+                document.getElementById('buyerTaxText').innerText = b.tax || '-';
+            }
+        }
+
+        function ArabicNumberToText(Num) {
+            if (Num == undefined || Num === "") return "";
+            Num = parseFloat(Num).toFixed(2);
+            let numberStr = Num.toString();
+            let parts = numberStr.split(".");
+            let integerPart = parts[0];
+            let decimalPart = parts[1];
+
+            let thaiDigits = ["ศูนย์", "หนึ่ง", "สอง", "สาม", "สี่", "ห้า", "หก", "เจ็ด", "แปด", "เก้า"];
+            let thaiPositions = ["", "สิบ", "ร้อย", "พัน", "หมื่น", "แสน", "ล้าน"];
+
+            function convertInteger(str) {
+                let len = str.length;
+                if (len === 0) return "";
+                let output = "";
+                for (let i = 0; i < len; i++) {
+                    let n = parseInt(str.charAt(i));
+                    let pos = len - i - 1;
+                    if (n !== 0) {
+                        if (pos === 1 && n === 1) {
+                            output += "สิบ";
+                        } else if (pos === 1 && n === 2) {
+                            output += "ยี่สิบ";
+                        } else if (pos === 0 && n === 1 && len > 1 && str.charAt(len - 2) !== '0') {
+                            output += "เอ็ด";
+                        } else {
+                            output += thaiDigits[n] + thaiPositions[pos];
+                        }
+                    }
+                }
+                return output;
+            }
+
+            let bahtText = convertInteger(integerPart);
+            if (bahtText !== "") bahtText += "บาท";
+            else bahtText = "ศูนย์บาท";
+
+            if (decimalPart === "00") {
+                bahtText += "ถ้วน";
+            } else {
+                bahtText += convertInteger(decimalPart) + "สตางค์";
+            }
+            return "(" + bahtText + ")";
+        }
+
+        function addItemRow() {
+            let tbody = document.getElementById('itemRows');
+            let rowCount = tbody.rows.length + 1;
+            let row = tbody.insertRow();
+            row.className = "hover:bg-slate-50 transition";
+            
+            row.innerHTML = `
+                <td class="p-1.5 text-center row-number text-slate-500 font-medium">${rowCount}</td>
+                <td class="p-1.5"><input type="text" class="w-full border-0 focus:ring-0 text-[11px] item-name bg-transparent" placeholder="ระบุรายการสินค้าหรือบริการ"></td>
+                <td class="p-1.5"><input type="number" value="0" min="0" step="any" class="w-full text-right border rounded px-1 py-0.5 text-[11px] item-price bg-white shadow-sm" oninput="calculateTotal()"></td>
+                <td class="p-1.5"><input type="number" value="1" min="1" class="w-full text-center border rounded px-1 py-0.5 text-[11px] item-qty bg-white shadow-sm" oninput="calculateTotal()"></td>
+                <td class="p-1.5 text-right font-semibold text-slate-700 item-total">0.00</td>
+                <td class="p-1.5 text-center no-print">
+                    <button onclick="removeRow(this)" class="text-rose-500 hover:text-rose-700 font-bold px-1.5 py-0.5 rounded bg-rose-50 hover:bg-rose-100 transition">×</button>
+                </td>
+            `;
+            calculateTotal();
+        }
+
+        function removeRow(btn) {
+            let row = btn.closest('tr');
+            row.remove();
+            updateRowNumbers();
+            calculateTotal();
+        }
+
+        function updateRowNumbers() {
+            let allRows = document.querySelectorAll('#itemRows tr');
+            allRows.forEach((row, index) => {
+                let numEl = row.querySelector('.row-number');
+                if(numEl) numEl.innerText = index + 1;
+            });
+        }
+
+        function calculateTotal() {
+            let rows = document.querySelectorAll('#itemRows tr');
+            let subTotal = 0;
+
+            rows.forEach(row => {
+                let priceEl = row.querySelector('.item-price');
+                let qtyEl = row.querySelector('.item-qty');
+                let price = priceEl ? parseFloat(priceEl.value) || 0 : 0;
+                let qty = qtyEl ? parseFloat(qtyEl.value) || 0 : 0;
+                let total = price * qty;
+                let totalEl = row.querySelector('.item-total');
+                if(totalEl) totalEl.innerText = total.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                subTotal += total;
+            });
+
+            let shippingEl = document.getElementById('shippingCost');
+            let discountEl = document.getElementById('discount');
+            let vatRateEl = document.getElementById('vatRate');
+
+            let shipping = shippingEl ? parseFloat(shippingEl.value) || 0 : 0;
+            let discount = discountEl ? parseFloat(discountEl.value) || 0 : 0;
+            let vatRate = vatRateEl ? parseFloat(vatRateEl.value) || 0 : 0;
+
+            let afterDiscount = subTotal + shipping - discount;
+            let vatAmount = afterDiscount * (vatRate / 100);
+            let grandTotal = afterDiscount + vatAmount;
+
+            document.getElementById('subTotal').innerText = subTotal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            document.getElementById('vatAmount').innerText = vatAmount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            document.getElementById('grandTotal').innerText = grandTotal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            document.getElementById('thaiText').innerText = ArabicNumberToText(grandTotal);
+        }
+    </script>
+</body>
+</html>
